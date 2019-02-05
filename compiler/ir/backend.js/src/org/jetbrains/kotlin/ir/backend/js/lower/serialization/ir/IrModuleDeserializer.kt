@@ -29,7 +29,6 @@ import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.IrKlibProtoBuf.
 import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.IrKlibProtoBuf.IrConst.ValueCase.*
 import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.IrKlibProtoBuf.IrDeclarator.DeclaratorCase.*
 import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.IrKlibProtoBuf.IrType.KindCase.*
-import org.jetbrains.kotlin.ir.backend.js.lower.serialization.ir.IrKlibProtoBuf.IrTypeArgument.KindCase.*
 
 
 import org.jetbrains.kotlin.name.Name
@@ -84,21 +83,25 @@ abstract class IrModuleDeserializer(
     }
 
     fun deserializeSimpleType(proto: IrKlibProtoBuf.IrSimpleType): IrSimpleType {
-        val arguments = proto.argumentList.map { deserializeIrTypeArgument(it) }
-        val annotations = deserializeAnnotations(proto.annotations)
         val symbol = deserializeIrSymbol(proto.classifier) as? IrClassifierSymbol
             //?: error("could not convert sym to ClassifierSym ${proto.classifier.kind} ${proto.classifier.uniqId.index} ${proto.classifier.uniqId.isLocal}")
             ?: error("could not convert sym to ClassifierSymbol")
         logger.log { "deserializeSimpleType: symbol=$symbol" }
-        val result = IrSimpleTypeImpl(
-            null,
-            symbol,
-            proto.hasQuestionMark,
-            arguments,
-            annotations
-        )
+
+        val result = builtIns.getPrimitiveTypeOrNullByDescriptor(symbol.descriptor, proto.hasQuestionMark) ?: run {
+            val arguments = proto.argumentList.map { deserializeIrTypeArgument(it) }
+            val annotations = deserializeAnnotations(proto.annotations)
+            IrSimpleTypeImpl(
+                null,
+                symbol,
+                proto.hasQuestionMark,
+                arguments,
+                annotations
+            )
+        }
         logger.log { "ir_type = $result; render = ${result.render()}" }
         return result
+
     }
 
     fun deserializeDynamicType(proto: IrKlibProtoBuf.IrDynamicType): IrDynamicType {
@@ -725,11 +728,12 @@ abstract class IrModuleDeserializer(
     ): IrValueParameter {
 
         val varargElementType = if (proto.hasVarargElementType()) deserializeIrType(proto.varargElementType) else null
+        val paramSymbol = deserializeIrSymbol(proto.symbol) as IrValueParameterSymbol
         val parameter =
             IrValueParameterImpl(
                 start, end, origin,
-                deserializeIrSymbol(proto.symbol) as IrValueParameterSymbol,
-                Name.identifier(proto.name),
+                paramSymbol,
+                proto.name.let { if (paramSymbol.descriptor is ReceiverParameterDescriptor) Name.special(it) else Name.identifier(it) },
                 proto.index,
                 deserializeIrType(proto.type),
                 varargElementType,
@@ -755,7 +759,7 @@ abstract class IrModuleDeserializer(
             IrClassImpl(
                         start, end, origin,
                         symbol,
-                        Name.identifier(proto.name),
+                        proto.name.let { if (it.startsWith('<')) Name.special(it) else Name.identifier(it) },
                         deserializeClassKind(proto.kind),
                         deserializeVisibility(proto.visibility),
                         modality,
@@ -822,7 +826,7 @@ abstract class IrModuleDeserializer(
             symbol.descriptor, {
                 IrFunctionImpl(
                     start, end, origin, it,
-                    Name.identifier(proto.base.name),
+                    proto.base.name.let { if (correspondingProperty != null) Name.special(it) else Name.identifier(it) },
                     deserializeVisibility(proto.base.visibility),
                     deserializeModality(proto.modality),
                     deserializeIrType(proto.base.returnType),
@@ -932,7 +936,7 @@ abstract class IrModuleDeserializer(
                 IrConstructorImpl(
                     start, end, origin,
                     it,
-                    Name.identifier(proto.base.name),
+                    Name.special(proto.base.name),
                     deserializeVisibility(proto.base.visibility),
                     deserializeIrType(proto.base.returnType),
                     proto.base.isInline,

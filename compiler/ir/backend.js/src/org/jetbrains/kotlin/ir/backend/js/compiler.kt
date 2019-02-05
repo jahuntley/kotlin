@@ -8,6 +8,7 @@ package org.jetbrains.kotlin.ir.backend.js
 import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.backend.common.CompilerPhaseManager
 import org.jetbrains.kotlin.backend.common.LoggingContext
+import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.builtins.functions.functionInterfacePackageFragmentProvider
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
@@ -126,8 +127,9 @@ fun compile(
         val storageManager = LockBasedStorageManager("JsConfig")
         val lookupTracker = configuration.get(CommonConfigurationKeys.LOOKUP_TRACKER, LookupTracker.DO_NOTHING)
         val parts = serializer.readModuleAsProto(metadata.readBytes())
-        val builtIns = analysisResult.moduleDescriptor.builtIns
+        val builtIns = object : KotlinBuiltIns(storageManager) {}//analysisResult.moduleDescriptor.builtIns
         val md = ModuleDescriptorImpl(Name.special("<$moduleName>"), storageManager, builtIns)
+        builtIns.builtInsModule = md
         val packageProviders = listOf(
             functionInterfacePackageFragmentProvider(storageManager, md),
             createJsKlibMetadataPackageFragmentProvider(
